@@ -57,35 +57,35 @@ Esto lanza el contenedor atacante, que ejecuta el comando ping directamente desd
 
 ### Contenedores en ejecución
 
-![docker compose ps mostrando todos los contenedores en running](img1.jpg)
+![docker compose ps mostrando todos los contenedores en running](./images/img1.jpg)
 
 ### Ejecución del ataque
 
-![terminal con la ejecución del ataque](img2.jpg)
+![terminal con la ejecución del ataque](./images/img2.jpg)
 
 ### Histograma de eventos en Kibana
 
-![Kibana Discover con el histograma mostrando el pico de eventos](img3.jpg)
+![Kibana Discover con el histograma mostrando el pico de eventos](./images/img3.jpg)
 
 ### Tabla con campos estructurados
 
-![tabla con columnas ip_origen, ip_destino, icmp_tipo](img4.jpg)
+![tabla con columnas ip_origen, ip_destino, icmp_tipo](./images/img4.jpg)
 
 ### Detalle de un evento
 
-![detalle de un evento expandido con todos los campos](img5.jpg) (img6.jpg)
+![detalle de un evento expandido con todos los campos](./images/img5.jpg) (./images/img6.jpg)
 
 ### Múltiples ataques — picos en la gráfica
 
-![ejemplo de varios ataques mostrando los picos en la gráfica](img7.jpg)
+![ejemplo de varios ataques mostrando los picos en la gráfica](./images/img7.jpg)
 
 ### Configuración de la cantidad de paquetes
 
-![configuración de la cantidad de paquetes en el docker-compose.yml](img8.jpg)
+![configuración de la cantidad de paquetes en el docker-compose.yml](./images/img8.jpg)
 
 ### Data view configurado
 
-![data view configurado en Kibana](img9.jpg)
+![data view configurado en Kibana](./images/img9.jpg)
 
 En Kibana se puede observar claramente el patrón del incidente. El histograma de Discover muestra un pico pronunciado de eventos concentrado en el intervalo de tiempo en que se ejecutó el ataque. Cada evento contiene los siguientes campos clave:
 
