@@ -1,0 +1,210 @@
+{
+  "name": "IDS - Detección de Fuerza Bruta",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "security-events",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook - Eventos de Seguridad",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "a1b2c3d4-0001-0001-0001-000000000099"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 2: Extraer y Validar Datos del Evento\n// ─────────────────────────────────────────────\nconst item = $input.first().json;\nconst body = item.body || item;\n\nconst ip        = body.ip         || body.source_ip || null;\nconst username  = body.username   || body.user      || 'desconocido';\nconst eventType = body.event_type || 'login_attempt';\nconst success   = body.success === true || body.success === 'true' || body.success === 1;\nconst timestamp = body.timestamp  || new Date().toISOString();\nconst service   = body.service    || 'SSH';\n\nif (!ip) {\n  throw new Error('Campo \"ip\" obligatorio no encontrado en el payload.');\n}\n\nreturn [{\n  json: { ip, username, eventType, success, timestamp, service }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "Extraer y Validar Datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 3: Contador de Intentos Fallidos por IP\n// ─────────────────────────────────────────────\nconst staticData = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nconst { ip, success, timestamp } = data;\n\nif (!staticData.counters) {\n  staticData.counters = {};\n}\n\n// Login EXITOSO: resetear contador\nif (success) {\n  const prevCount = staticData.counters[ip]?.count || 0;\n  delete staticData.counters[ip];\n  return [{\n    json: {\n      ...data,\n      failedCount: 0,\n      action: 'reset_on_success',\n      message: `Login exitoso. Contador reseteado (había ${prevCount} intentos previos).`\n    }\n  }];\n}\n\n// Login FALLIDO: incrementar contador\nif (!staticData.counters[ip]) {\n  staticData.counters[ip] = {\n    count: 0,\n    firstAttempt: timestamp,\n    username: data.username\n  };\n}\n\nstaticData.counters[ip].count++;\nstaticData.counters[ip].lastAttempt = timestamp;\n\nconst failedCount  = staticData.counters[ip].count;\nconst firstAttempt = staticData.counters[ip].firstAttempt;\n\nreturn [{\n  json: {\n    ...data,\n    failedCount,\n    firstAttempt,\n    severity: failedCount >= 10 ? 'ALTA' : failedCount >= 5 ? 'MEDIA' : 'NORMAL'\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "Contador de Intentos por IP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.failedCount }}",
+              "operation": "largerEqual",
+              "value2": 5
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "¿Supera Umbral de Alerta?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "number",
+        "value1": "={{ $json.failedCount }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": 10,
+              "operation": "largerEqual",
+              "output": 0
+            },
+            {
+              "value2": 5,
+              "operation": "largerEqual",
+              "output": 1
+            }
+          ]
+        },
+        "fallbackOutput": 1
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000005",
+      "name": "Clasificar Severidad",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "ids-noreply@empresa.local",
+        "toEmail": "soc@empresa.local",
+        "subject": "=🚨 [ALTA] Ataque de Fuerza Bruta detectado desde {{ $json.ip }}",
+        "emailFormat": "html",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;\"><div style=\"max-width:600px;margin:auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.1);\"><div style=\"background:#c0392b;padding:20px;color:white;\"><h2 style=\"margin:0;\">🚨 ALERTA DE SEGURIDAD — SEVERIDAD ALTA</h2><p style=\"margin:5px 0 0;\">Ataque de Fuerza Bruta Confirmado</p></div><div style=\"padding:25px;\"><table style=\"width:100%;border-collapse:collapse;\"><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;width:40%;\"><strong>IP Atacante</strong></td><td style=\"padding:8px;font-family:monospace;background:#fff3f3;\">{{ $json.ip }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Usuario objetivo</strong></td><td style=\"padding:8px;\">{{ $json.username }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Servicio atacado</strong></td><td style=\"padding:8px;\">{{ $json.service }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Intentos fallidos</strong></td><td style=\"padding:8px;color:#c0392b;font-weight:bold;\">{{ $json.failedCount }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Primer intento</strong></td><td style=\"padding:8px;\">{{ $json.firstAttempt }}</td></tr><tr><td style=\"padding:8px;color:#555;\"><strong>Último intento</strong></td><td style=\"padding:8px;\">{{ $json.timestamp }}</td></tr></table><div style=\"margin-top:20px;padding:15px;background:#fdf2f2;border-left:4px solid #c0392b;border-radius:4px;\"><strong>🛡️ Acción automática:</strong> IP bloqueada 24 horas<br><strong>🤖 Sistema:</strong> n8n IDS v1.0</div></div></div></body></html>",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000006",
+      "name": "Email Alerta - ALTA",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1340, 80],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-mailhog",
+          "name": "MailHog SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 7: Simular Bloqueo de IP\n// ─────────────────────────────────────────────\nconst staticData = $getWorkflowStaticData('global');\nconst data = $input.first().json;\nconst { ip, failedCount, service } = data;\nconst blockedAt = new Date().toISOString();\n\nconst blockRecord = {\n  action: 'IP_BLOCKED',\n  ip,\n  blockedAt,\n  expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),\n  reason: `Fuerza bruta: ${failedCount} intentos fallidos en ${service}`,\n  blockedBy: 'n8n-IDS-Automated',\n  duration: '24 horas',\n  simulated: true\n};\n\nif (!staticData.blockedIPs) staticData.blockedIPs = {};\nstaticData.blockedIPs[ip] = blockRecord;\n\nconsole.log('[IDS] IP BLOQUEADA:', JSON.stringify(blockRecord, null, 2));\n\nreturn [{\n  json: { ...data, blockRecord, ipBlocked: true }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000007",
+      "name": "Simular Bloqueo de IP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 80]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 8: Registrar Incidente ALTA\n// ─────────────────────────────────────────────\nconst data = $input.first().json;\nconst incident = {\n  id: `INC-${Date.now()}`,\n  severity: 'ALTA',\n  type: 'BRUTE_FORCE_ATTACK',\n  status: 'CONTENIDO',\n  ip: data.ip,\n  username: data.username,\n  service: data.service,\n  failedAttempts: data.failedCount,\n  firstAttempt: data.firstAttempt,\n  detectedAt: new Date().toISOString(),\n  actions: ['EMAIL_ALERT_SENT', 'IP_BLOCKED_24H'],\n  blockRecord: data.blockRecord || null,\n  notes: 'Incidente detectado y contenido automáticamente por n8n IDS.'\n};\nconsole.log('[IDS] INCIDENTE ALTA:', JSON.stringify(incident, null, 2));\nreturn [{ json: { incident, registrationStatus: 'OK' } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000008",
+      "name": "Registrar Incidente - ALTA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 80]
+    },
+    {
+      "parameters": {
+        "fromEmail": "ids-noreply@empresa.local",
+        "toEmail": "soc@empresa.local",
+        "subject": "=⚠️ [MEDIA] Múltiples intentos fallidos desde {{ $json.ip }} ({{ $json.failedCount }} intentos)",
+        "emailFormat": "html",
+        "html": "=<!DOCTYPE html><html><body style=\"font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;\"><div style=\"max-width:600px;margin:auto;background:white;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.1);\"><div style=\"background:#e67e22;padding:20px;color:white;\"><h2 style=\"margin:0;\">⚠️ ALERTA DE SEGURIDAD — SEVERIDAD MEDIA</h2><p style=\"margin:5px 0 0;\">Múltiples intentos de acceso fallidos</p></div><div style=\"padding:25px;\"><table style=\"width:100%;border-collapse:collapse;\"><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;width:40%;\"><strong>IP</strong></td><td style=\"padding:8px;font-family:monospace;\">{{ $json.ip }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Usuario</strong></td><td style=\"padding:8px;\">{{ $json.username }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Servicio</strong></td><td style=\"padding:8px;\">{{ $json.service }}</td></tr><tr style=\"border-bottom:1px solid #eee;\"><td style=\"padding:8px;color:#555;\"><strong>Intentos fallidos</strong></td><td style=\"padding:8px;color:#e67e22;font-weight:bold;\">{{ $json.failedCount }} de 10</td></tr><tr><td style=\"padding:8px;color:#555;\"><strong>Primer intento</strong></td><td style=\"padding:8px;\">{{ $json.firstAttempt }}</td></tr></table><div style=\"margin-top:20px;padding:15px;background:#fef9ec;border-left:4px solid #e67e22;border-radius:4px;\"><strong>👁️ Estado:</strong> IP bajo monitorización activa<br><strong>⚡ Aviso:</strong> Al alcanzar 10 intentos la IP será bloqueada automáticamente<br><strong>🤖 Sistema:</strong> n8n IDS v1.0</div></div></div></body></html>",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000009",
+      "name": "Email Alerta - MEDIA",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1340, 320],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-mailhog",
+          "name": "MailHog SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 10: Registrar Incidente MEDIA\n// ─────────────────────────────────────────────\nconst data = $input.first().json;\nconst incident = {\n  id: `INC-${Date.now()}`,\n  severity: 'MEDIA',\n  type: 'MULTIPLE_FAILED_LOGINS',\n  status: 'EN_SEGUIMIENTO',\n  ip: data.ip,\n  username: data.username,\n  service: data.service,\n  failedAttempts: data.failedCount,\n  firstAttempt: data.firstAttempt,\n  detectedAt: new Date().toISOString(),\n  actions: ['EMAIL_ALERT_SENT', 'MONITORING_ACTIVE'],\n  notes: 'IP en seguimiento. Se bloqueará automáticamente al alcanzar 10 intentos fallidos.'\n};\nconsole.log('[IDS] INCIDENTE MEDIA:', JSON.stringify(incident, null, 2));\nreturn [{ json: { incident, registrationStatus: 'OK' } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000010",
+      "name": "Registrar Incidente - MEDIA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────\n// NODO 11: Registrar Evento Normal\n// ─────────────────────────────────────────────\nconst data = $input.first().json;\nconst logEntry = {\n  type: 'INFO',\n  timestamp: new Date().toISOString(),\n  ip: data.ip,\n  username: data.username,\n  service: data.service,\n  failedCount: data.failedCount || 0,\n  success: data.success,\n  message: data.success\n    ? `Login exitoso. Contador reseteado para ${data.ip}.`\n    : `Intento fallido ${data.failedCount || 1} de 5 para ${data.ip}. Sin umbral alcanzado.`\n};\nconsole.log('[IDS] EVENTO NORMAL:', JSON.stringify(logEntry));\nreturn [{ json: { logEntry, status: 'normal', registered: true } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000011",
+      "name": "Registrar Evento Normal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 420]
+    }
+  ],
+  "connections": {
+    "Webhook - Eventos de Seguridad": {
+      "main": [[{ "node": "Extraer y Validar Datos", "type": "main", "index": 0 }]]
+    },
+    "Extraer y Validar Datos": {
+      "main": [[{ "node": "Contador de Intentos por IP", "type": "main", "index": 0 }]]
+    },
+    "Contador de Intentos por IP": {
+      "main": [[{ "node": "¿Supera Umbral de Alerta?", "type": "main", "index": 0 }]]
+    },
+    "¿Supera Umbral de Alerta?": {
+      "main": [
+        [{ "node": "Clasificar Severidad", "type": "main", "index": 0 }],
+        [{ "node": "Registrar Evento Normal", "type": "main", "index": 0 }]
+      ]
+    },
+    "Clasificar Severidad": {
+      "main": [
+        [{ "node": "Email Alerta - ALTA", "type": "main", "index": 0 }],
+        [{ "node": "Email Alerta - MEDIA", "type": "main", "index": 0 }]
+      ]
+    },
+    "Email Alerta - ALTA": {
+      "main": [[{ "node": "Simular Bloqueo de IP", "type": "main", "index": 0 }]]
+    },
+    "Simular Bloqueo de IP": {
+      "main": [[{ "node": "Registrar Incidente - ALTA", "type": "main", "index": 0 }]]
+    },
+    "Email Alerta - MEDIA": {
+      "main": [[{ "node": "Registrar Incidente - MEDIA", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "ids-fuerzabruta-v2",
+  "meta": { "templateCredsSetupCompleted": true },
+  "id": "ids-workflow-brute-force-002",
+  "tags": [
+    { "id": "1", "name": "ciberseguridad" },
+    { "id": "2", "name": "IDS" }
+  ]
+}
