@@ -255,6 +255,8 @@ access-group ACL-DMZ in interface dmz
 
 ![img11](images/img11.jpg)
 
+![img12](images/img12.jpg)
+
 ---
 
 ## Archivos del proyecto
